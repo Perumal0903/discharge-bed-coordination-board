@@ -1,0 +1,24 @@
+# Node dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Production build output
+dist/
+client/dist/
+
+# Database file (synthetic local runtime instance)
+server/database.sqlite
+*.sqlite3
+*.sqlite-journal
+
+# Environment & IDE
+.env
+.env.local
+.DS_Store
+.idea/
+.vscode/
+
+# Temp artifacts
+scratch/
+.tempmediaStorage/
