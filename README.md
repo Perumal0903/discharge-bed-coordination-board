@@ -175,13 +175,15 @@ Seed dataset contains 20 beds and 100 synthetic patient workload cycles spanning
 
 ---
 
-## 14. Edge & Failure Test Cases
+## 14. Edge & Failure Test Cases & Race Condition Protections
 
-1. **Case 1 (Missing Milestone)**: Skip milestone → Status `UNKNOWN`, recommendation disabled.
-2. **Case 2 (Stale Event)**: Telemetry latency > 15m → Status `STALE`, recommendation blocked.
-3. **Case 3 (Missing Cleaning Completion)**: Cleaning in progress → Bed state `CLEANING`, cannot become `SAFE TO ALLOCATE`.
-4. **Case 4 (Conflicting Events)**: Contradictory milestone statuses → Status `CONFLICT`, recommendation disabled.
-5. **Case 5 (Capacity Conflict)**: High demand relative to safe beds → Status `CAPACITY RISK`.
+1. **Simultaneous Discharge Cancellation**: Confirmed discharge order cancelled post-readiness → patient returns to `IN_CARE`, bed returns to `OCCUPIED`, no cleaning triggered, cancellation post physical departure strictly rejected. Idempotently handled.
+2. **Cleaning State Race Conditions**: Out-of-order cleaning events detected via deterministic timestamp/ID tie-breaker comparison (`isEventStaleOrOutOfOrder`); stale events ignored without corrupting bed state. Duplicate cleaning completion calls handled idempotently.
+3. **Case 1 (Missing Milestone)**: Skip milestone → Status `UNKNOWN`, recommendation disabled.
+4. **Case 2 (Stale Telemetry Event)**: Telemetry latency > 15m → Status `STALE`, recommendation blocked.
+5. **Case 3 (Missing Cleaning Completion)**: Cleaning in progress → Bed state `CLEANING`, cannot become `SAFE TO ALLOCATE`.
+6. **Case 4 (Conflicting Telemetry Events)**: Contradictory milestone statuses → Status `CONFLICT`, recommendation disabled.
+7. **Case 5 (Capacity Conflict)**: High demand relative to safe beds → Status `CAPACITY RISK`.
 
 ---
 
@@ -197,6 +199,8 @@ Calculated deterministically from actual synthetic event log timestamps across 1
 
 ## 16. Measured Baseline vs Prototype Results
 
+### 16.1 Primary Workload Experiment (100 Cases)
+
 | Experimental Parameter | Baseline (Manual Workflow) | Prototype System | Target Goal | Absolute Improvement | Percentage Improvement |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Total Cases** | **100 Cases** | **100 Cases** | — | — | — |
@@ -208,7 +212,20 @@ Calculated deterministically from actual synthetic event log timestamps across 1
 | **Standard Deviation** | **0.0 mins** | **0.0 mins** | — | — | — |
 | **Min / Max Range** | **95.0 – 95.0 mins** | **55.0 – 55.0 mins** | — | — | — |
 | **Target Met (≤ 60m)** | **FAILED** | **PASSED** | **≤ 60.0 mins** | — | **TARGET MET** |
-| **Unsafe Recommendations** | N/A | **0 (Zero)** | **0** | — | **100% Safety Guaranteed** |
+| **Unsafe Recommendations** | N/A | **0 (Zero)** | **0** | — | **0 Unsafe Recs Observed** |
+
+### 16.2 Synthetic Scenario / Cohort Stress-Test Comparison
+
+*Note: Descriptive synthetic result — insufficient sample size for statistical inference.*
+
+| Scenario Cohort | Category | Valid / Total Cases | Baseline Mean | Prototype Mean | Median | P90 | Manual Fallbacks | Unsafe Recs |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **A. Baseline / Normal Operations** | Nominal | 20 / 20 | 80.0 m | 40.0 m | 40.0 m | 40.0 m | 0 | 0 |
+| **B. Housekeeping Staffing Deficit** | Staffing Deficit | 20 / 20 | 120.0 m | 70.0 m | 70.0 m | 70.0 m | 0 | 0 |
+| **C. Delayed Patient Transport** | Transport Delay | 20 / 20 | 130.0 m | 95.0 m | 95.0 m | 95.0 m | 0 | 0 |
+| **D. Discharge Cancellation** | Exception | 15 / 20 | 85.0 m | 45.0 m | 45.0 m | 45.0 m | 5 | 0 |
+| **E. Missing / Stale Telemetry** | Telemetry Failure | 0 / 20 | N/A | N/A | N/A | N/A | 20 | 0 |
+| **F. Combined Edge-Case Heavy** | Multi-Hazard | 15 / 20 | 125.0 m | 76.5 m | 75.0 m | 100.0 m | 5 | 0 |
 
 ---
 
@@ -217,14 +234,16 @@ Calculated deterministically from actual synthetic event log timestamps across 1
 - **Missing Data Detections**: 2 cases (PAT-113: missing milestone).
 - **Stale Telemetry Detections**: 1 case (PAT-106: ingestion latency > 15m).
 - **Conflicting Telemetry Events**: 1 case (PAT-115: contradictory milestone telemetry).
-- **Manual Fallback Activations**: 2 total fallbacks to `MANUAL VERIFICATION REQUIRED`.
+- **Manual Fallback Activations**: 2 total fallbacks to `MANUAL VERIFICATION REQUIRED` in primary dataset.
 - **Unsafe Recommendations**: 0 (Zero unsafe automatic recommendations produced).
 
 ---
 
-## 18. Stakeholder Validation Summary
+## 18. Structured Domain-Role Walkthrough Framework
 
-Validated with 3 representative roles (Coordinator, Nurse, Housekeeping) across 4 operational tasks in a synthetic student/operator prototype walkthrough. 100% task completion success rate achieved.
+Framework structured across 5 operational domain roles (Bed Coordinator, Staff Nurse, Clinician, Housekeeping Lead, System Administrator) with user goals, step scenarios, expected system behavior, safety fallbacks, visible UI evidence, acceptance criteria, and questions for future feedback.
+
+*Validation Status: Structured synthetic prototype walkthrough; real clinical/administrative stakeholder validation remains pending.*
 
 ---
 
@@ -250,12 +269,12 @@ npm run dev
 
 ## 20. Running Automated Tests
 
-Run backend unit and edge case tests:
+Run backend unit, edge-case, and race condition tests:
 ```bash
 cd server
 npm test
 ```
-All 27 tests pass cleanly in ~260ms.
+All 37 tests pass cleanly in ~1.9s.
 
 ---
 

@@ -5,11 +5,13 @@ import { evaluateClinicalReadiness } from '../engine/readinessEngine.js';
 import { evaluateNextSafeBed, evaluateSingleBedRecommendation } from '../engine/recommendationEngine.js';
 import { BED_STATES } from '../engine/turnoverEngine.js';
 import { runSyntheticExperiment } from '../engine/metricsEngine.js';
+import { runSyntheticScenarioEvaluation } from '../engine/scenarioEvaluation.js';
 import { loadSystemConfig, updateSystemConfigCache } from '../services/configService.js';
 import {
   triggerAdmission,
   completeMilestone,
   createDischargeOrder,
+  cancelDischargeOrder,
   dischargePatient,
   startCleaning,
   completeCleaning,
@@ -229,6 +231,28 @@ router.post('/discharge-orders', async (req, res) => {
   }
 });
 
+router.post('/discharge-orders/:id/cancel', async (req, res) => {
+  try {
+    const result = await cancelDischargeOrder({
+      orderId: req.params.id !== 'cancel' ? req.params.id : null,
+      patientId: req.body.patientId || req.body.patient_id,
+      ...req.body
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/discharge-orders/cancel', async (req, res) => {
+  try {
+    const result = await cancelDischargeOrder(req.body);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post('/discharge-patient', async (req, res) => {
   try {
     const result = await dischargePatient(req.body);
@@ -318,7 +342,17 @@ router.get('/audit', async (req, res) => {
 router.get('/evaluation', async (req, res) => {
   try {
     const result = await runSyntheticExperiment(query);
-    res.json(result);
+    const scenarios = runSyntheticScenarioEvaluation();
+    res.json({ ...result, syntheticScenarios: scenarios });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/evaluation/scenarios', async (req, res) => {
+  try {
+    const scenarios = runSyntheticScenarioEvaluation();
+    res.json(scenarios);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

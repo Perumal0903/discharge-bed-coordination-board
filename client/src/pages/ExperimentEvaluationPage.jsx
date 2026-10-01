@@ -183,6 +183,66 @@ export const ExperimentEvaluationPage = () => {
         </div>
       </div>
 
+      {/* Synthetic Scenario / Cohort Comparison Section */}
+      {data.syntheticScenarios && data.syntheticScenarios.length > 0 && (
+        <div className="glass-panel rounded-xl border border-blue-500/30 p-5 space-y-5 shadow-xl">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-blue-400" />
+                <span>Synthetic Scenario Analysis</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Deterministic scenario stress-testing comparing baseline vs prototype across operational edge cases. KPI values are derived from deterministic synthetic event timestamps.
+              </p>
+            </div>
+            <span className="px-3 py-1 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 whitespace-nowrap">
+              Synthetic Scenario Analysis
+            </span>
+          </div>
+
+          <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 text-xs text-slate-300 leading-relaxed font-mono">
+            ℹ️ <strong className="text-slate-100 font-sans">Synthetic Scenario Analysis:</strong> Values are derived from deterministic synthetic event timestamps (clinical discharge readiness → departure → cleaning → inspection → next safe bed availability).
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400 font-semibold uppercase">
+                  <th className="py-2.5 px-3">Scenario / Cohort</th>
+                  <th className="py-2.5 px-3 text-slate-300">Cases</th>
+                  <th className="py-2.5 px-3 text-rose-400">Baseline Mean</th>
+                  <th className="py-2.5 px-3 text-emerald-400">Prototype Mean</th>
+                  <th className="py-2.5 px-3">Median</th>
+                  <th className="py-2.5 px-3">P90</th>
+                  <th className="py-2.5 px-3">Std Dev</th>
+                  <th className="py-2.5 px-3 text-amber-400">Manual Fallbacks</th>
+                  <th className="py-2.5 px-3 text-emerald-400">Unsafe Recs</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800 font-mono text-slate-200">
+                {data.syntheticScenarios.map((sc) => (
+                  <tr key={sc.id} className="hover:bg-slate-800/40">
+                    <td className="py-2.5 px-3 font-sans font-semibold">
+                      <div className="text-slate-100">{sc.name}</div>
+                      <div className="text-[10px] text-slate-400 font-normal">{sc.description}</div>
+                    </td>
+                    <td className="py-2.5 px-3">{sc.validCases} / {sc.totalCases}</td>
+                    <td className="py-2.5 px-3 text-rose-300">{sc.baseline.count > 0 ? `${sc.baseline.mean} m` : 'N/A'}</td>
+                    <td className="py-2.5 px-3 text-emerald-300 font-bold">{sc.prototype.count > 0 ? `${sc.prototype.mean} m` : 'N/A'}</td>
+                    <td className="py-2.5 px-3">{sc.prototype.count > 0 ? `${sc.prototype.median} m` : 'N/A'}</td>
+                    <td className="py-2.5 px-3">{sc.prototype.count > 0 ? `${sc.prototype.p90} m` : 'N/A'}</td>
+                    <td className="py-2.5 px-3">{sc.prototype.count > 0 ? `${sc.prototype.stdDev} m` : 'N/A'}</td>
+                    <td className="py-2.5 px-3 text-amber-400 font-bold">{sc.manualFallbacksCount}</td>
+                    <td className="py-2.5 px-3 text-emerald-400 font-bold">{sc.unsafeRecommendationsCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* PART 17: Error Analysis & Interpretation */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="glass-panel rounded-xl border border-slate-800 p-5 space-y-4 shadow-xl">

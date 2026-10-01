@@ -25,6 +25,7 @@ export const api = {
   admitPatient: (data) => fetchJson('/admissions', { method: 'POST', body: JSON.stringify(data) }),
   completeMilestone: (data) => fetchJson('/milestones', { method: 'POST', body: JSON.stringify(data) }),
   createDischargeOrder: (data) => fetchJson('/discharge-orders', { method: 'POST', body: JSON.stringify(data) }),
+  cancelDischargeOrder: (data) => fetchJson('/discharge-orders/cancel', { method: 'POST', body: JSON.stringify(data) }),
   dischargePatient: (data) => fetchJson('/discharge-patient', { method: 'POST', body: JSON.stringify(data) }),
   startCleaning: (data) => fetchJson('/cleaning/start', { method: 'POST', body: JSON.stringify(data) }),
   completeCleaning: (data) => fetchJson('/cleaning/complete', { method: 'POST', body: JSON.stringify(data) }),
@@ -36,6 +37,7 @@ export const api = {
   getRecommendations: () => fetchJson('/recommendations'),
   getAuditLogs: () => fetchJson('/audit'),
   getEvaluation: () => fetchJson('/evaluation'),
+  getScenarioEvaluation: () => fetchJson('/evaluation/scenarios'),
   runExperiment: () => fetchJson('/experiment/run', { method: 'POST' }),
 
   startDemo: () => fetchJson('/demo/start', { method: 'POST' }),

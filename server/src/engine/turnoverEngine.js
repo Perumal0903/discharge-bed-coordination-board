@@ -45,6 +45,25 @@ export const isValidBedTransition = (currentState, nextState) => {
 };
 
 /**
+ * Deterministic helper to evaluate if an incoming operational event is stale or out-of-order
+ * compared to the latest known state timestamp and event ID.
+ */
+export const isEventStaleOrOutOfOrder = (latestTimestamp, newEventTimestamp, latestId = null, newEventId = null) => {
+  if (!latestTimestamp || !newEventTimestamp) return false;
+  const latestTime = new Date(latestTimestamp).getTime();
+  const newTime = new Date(newEventTimestamp).getTime();
+
+  if (isNaN(latestTime) || isNaN(newTime)) return false;
+
+  if (newTime < latestTime) return true;
+  if (newTime === latestTime && latestId !== null && newEventId !== null && newEventId <= latestId) {
+    return true;
+  }
+  return false;
+};
+
+
+/**
  * Checks if starting a new cleaning task exceeds max simultaneous cleaning capacity limits.
  */
 export const checkCleaningCapacity = (allBeds = [], customLimit = null) => {

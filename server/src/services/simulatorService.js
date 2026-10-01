@@ -1,6 +1,6 @@
 import { run, query, getOne } from '../db/index.js';
 import { logAudit } from './auditService.js';
-import { BED_STATES, isValidBedTransition, checkCleaningCapacity } from '../engine/turnoverEngine.js';
+import { BED_STATES, isValidBedTransition, checkCleaningCapacity, isEventStaleOrOutOfOrder } from '../engine/turnoverEngine.js';
 import { REQUIRED_MILESTONES } from '../db/seedData.js';
 
 /**
@@ -146,6 +146,67 @@ export const createDischargeOrder = async ({ patientId, clinician = 'Dr. Aris Th
   return { patientId, orderStatus: 'CONFIRMED' };
 };
 
+export const cancelDischargeOrder = async ({ patientId, orderId = null, reason = 'Clinical condition changed', userRole = 'clinician', userName = 'Dr. Aris Thorne' }) => {
+  const patient = await getOne('SELECT * FROM patients WHERE patient_id = ?', [patientId]);
+  if (!patient) throw new Error(`Patient ${patientId} not found`);
+
+  if (patient.discharge_status === 'DISCHARGED') {
+    throw new Error(`Cannot cancel discharge order: Patient ${patientId} has already physically departed (DISCHARGED).`);
+  }
+
+  const order = orderId
+    ? await getOne('SELECT * FROM discharge_orders WHERE id = ? AND patient_id = ?', [orderId, patientId])
+    : await getOne('SELECT * FROM discharge_orders WHERE patient_id = ? ORDER BY id DESC LIMIT 1', [patientId]);
+
+  if (!order) {
+    throw new Error(`No discharge order found for patient ${patientId}`);
+  }
+
+  if (order.order_status === 'CANCELLED' && patient.discharge_status === 'IN_CARE') {
+    return { success: true, patientId, orderStatus: 'CANCELLED', alreadyCancelled: true, message: 'Discharge order is already cancelled' };
+  }
+
+  const now = new Date().toISOString();
+
+  await run('UPDATE discharge_orders SET order_status = ?, notes = ? WHERE id = ?', ['CANCELLED', `CANCELLED: ${reason}`, order.id]);
+
+  const prevPatientStatus = patient.discharge_status;
+  await run('UPDATE patients SET discharge_status = ? WHERE patient_id = ?', ['IN_CARE', patientId]);
+
+  if (patient.bed_id) {
+    const bed = await getOne('SELECT * FROM beds WHERE bed_id = ?', [patient.bed_id]);
+    if (bed && bed.state === BED_STATES.DISCHARGE_PENDING) {
+      const prevState = bed.state;
+      await run(
+        'UPDATE beds SET state = ?, state_updated_at = ?, state_source = ? WHERE bed_id = ?',
+        [BED_STATES.OCCUPIED, now, userRole.toUpperCase(), patient.bed_id]
+      );
+
+      await recordBedEvent({
+        bedId: patient.bed_id,
+        patientId,
+        state: BED_STATES.OCCUPIED,
+        previousState: prevState,
+        source: userRole.toUpperCase(),
+        notes: `Discharge order cancelled by ${userName}. Bed returned to OCCUPIED.`
+      });
+    }
+  }
+
+  await logAudit({
+    userRole,
+    userName,
+    action: 'CANCEL_DISCHARGE_ORDER',
+    targetType: 'PATIENT',
+    targetId: patientId,
+    previousState: prevPatientStatus,
+    newState: 'IN_CARE',
+    reason: `Discharge order cancelled by ${userName}: ${reason}`
+  });
+
+  return { success: true, patientId, orderStatus: 'CANCELLED', message: 'Discharge order cancelled successfully' };
+};
+
 export const dischargePatient = async ({ patientId, userRole = 'coordinator', userName = 'Bed Coordinator' }) => {
   const patient = await getOne('SELECT * FROM patients WHERE patient_id = ?', [patientId]);
   if (!patient) throw new Error(`Patient ${patientId} not found`);
@@ -186,9 +247,15 @@ export const dischargePatient = async ({ patientId, userRole = 'coordinator', us
   return { patientId, bedId: patient.bed_id, state: BED_STATES.DISCHARGED };
 };
 
-export const startCleaning = async ({ bedId, staff = 'Housekeeper Alex', userRole = 'housekeeping', userName = 'Housekeeping Staff' }) => {
+export const startCleaning = async ({ bedId, staff = 'Housekeeper Alex', userRole = 'housekeeping', userName = 'Housekeeping Staff', eventTime = null }) => {
   const bed = await getOne('SELECT * FROM beds WHERE bed_id = ?', [bedId]);
   if (!bed) throw new Error(`Bed ${bedId} not found`);
+
+  const now = eventTime || new Date().toISOString();
+
+  if (isEventStaleOrOutOfOrder(bed.state_updated_at, now)) {
+    return { bedId, state: bed.state, ignored: true, reason: 'Stale/out-of-order cleaning event ignored.' };
+  }
 
   if (!isValidBedTransition(bed.state, BED_STATES.CLEANING)) {
     throw new Error(`Cannot start cleaning on bed ${bedId} in state '${bed.state}'.`);
@@ -200,7 +267,6 @@ export const startCleaning = async ({ bedId, staff = 'Housekeeper Alex', userRol
     throw new Error(`CAPACITY RISK: ${cap.activeCount} simultaneous cleanings active (limit: ${cap.maxLimit})`);
   }
 
-  const now = new Date().toISOString();
   await run(
     'INSERT INTO cleaning_events (bed_id, patient_id, cleaning_status, assigned_staff, start_time, received_time) VALUES (?, ?, ?, ?, ?, ?)',
     [bedId, bed.current_patient_id || null, 'IN_PROGRESS', staff, now, now]
@@ -235,11 +301,25 @@ export const startCleaning = async ({ bedId, staff = 'Housekeeper Alex', userRol
   return { bedId, state: BED_STATES.CLEANING };
 };
 
-export const completeCleaning = async ({ bedId, userRole = 'housekeeping', userName = 'Housekeeping Staff' }) => {
+export const completeCleaning = async ({ bedId, userRole = 'housekeeping', userName = 'Housekeeping Staff', eventTime = null }) => {
   const bed = await getOne('SELECT * FROM beds WHERE bed_id = ?', [bedId]);
   if (!bed) throw new Error(`Bed ${bedId} not found`);
 
-  const now = new Date().toISOString();
+  if (bed.state === BED_STATES.OCCUPIED || bed.current_patient_id) {
+    throw new Error(`Cannot complete cleaning: Bed ${bedId} is currently OCCUPIED.`);
+  }
+
+  const now = eventTime || new Date().toISOString();
+
+  if (isEventStaleOrOutOfOrder(bed.state_updated_at, now)) {
+    return { bedId, state: bed.state, ignored: true, reason: 'Stale/out-of-order cleaning completion ignored.' };
+  }
+
+  const activeCleaning = await getOne('SELECT * FROM cleaning_events WHERE bed_id = ? ORDER BY id DESC LIMIT 1', [bedId]);
+  if (activeCleaning && activeCleaning.cleaning_status === 'COMPLETED' && (bed.state === BED_STATES.INSPECTION || bed.state === BED_STATES.READY)) {
+    return { bedId, state: bed.state, idempotent: true, message: 'Cleaning already completed' };
+  }
+
   await run(
     'UPDATE cleaning_events SET cleaning_status = ?, completion_time = ?, received_time = ? WHERE bed_id = ? AND cleaning_status = ?',
     ['COMPLETED', now, now, bedId, 'IN_PROGRESS']
